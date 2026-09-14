@@ -133,3 +133,47 @@ for a direct side-by-side.
   via `POSE_MAP`) exactly like character_3's own approach -- `model` and `idea` share one pose
   minus the prop callout, `running` reads more like a static explaining stance than a stride.
   Same budget-conscious tradeoff character_3 made, not a character_4-specific regression.
+
+## Second round of real bugs found by Kamal (2026-09-14) — head-body gap + squashed faces
+
+Kamal reviewed the rendered video at full resolution (not the small QA thumbnails) and
+found two real defects the previous "fix" pass missed:
+
+1. **Head visibly detached from the body on every pose**, not just the two poses I'd
+   spot-checked. Root cause: `head_M.png`'s neck was cut at canvas row 232 of a 360x300
+   canvas, but the anchoring math assumed the FULL 300px was drawn content. The bottom
+   69px of every head box was actually transparent padding, so the visible chin sat
+   69px above where the anchor thought it was — a small-looking gap in a thumbnail,
+   an obvious floating head at 1920x1080.
+   **Fix:** cropped `head/{L,M,R}` to their real drawn bbox (196x220, was 360x300) so
+   box-bottom and drawn-content-bottom are the same row by construction; shifted every
+   eye/mouth box position by the crop's offset so they land in the same place on the
+   face. Also found and fixed a second bug in the same area: the neck-detector picked a
+   raised hand as "the neck" on poses where a hand sits near head height ("hi" waving,
+   "come"/"love" — same pose file — and initially "thinking"); fixed by preferring the
+   neck candidate closest to the MEDIAN neck row across all poses instead of the
+   topmost one.
+2. **Faces looked inconsistent / distorted.** All 28 eye-emotion sprites had been forced
+   into ONE fixed 120x56 box via the loader's raw `resize()` (stretch, not letterbox).
+   Gemini's eye stickers have native aspect ratios from 1.49 (crazy) to 2.64
+   (evil_laugh); stretching every one of them into a single 2.14-aspect box visibly
+   squashed or stretched the drawn eye shape per emotion — exactly Kamal's "the frame is
+   resized making the face shape change" complaint.
+   **Fix:** pre-baked every eye sprite onto a shared 120x65 canvas via true letterboxing
+   (uniform scale, transparent padding, no stretch) so the file itself is already the
+   right size — the loader's later resize becomes a no-op. `tools/fix_character_4_eye_aspect.py`.
+
+New tools: `tools/fix_character_4_head_crop.py`, `tools/fix_character_4_eye_aspect.py`,
+`tools/fix_character_4_body_anchors.py` (rewritten again — see its own docstring history).
+
+Verified this time at FULL RESOLUTION, not just thumbnails: re-extracted the exact
+frames Kamal would have seen (the "hi" and "thinking" poses at their timestamps in
+`ahmed_test`), zoomed into the neck region, confirmed the head now sits flush on the
+collar with no gap. `character_qa.py character_4` -> 0 problems. Re-rendered
+`ahmed_test` end to end and re-generated `compare_visemes.png` / `compare_emotions.png`
+/ `compare_bodies.png`.
+
+**Lesson for next time:** the QA contact-sheet thumbnails (~260px tiles) can visually
+hide a real gap or a mild squash that is obvious at 1920x1080. Always pull actual frames
+from a rendered video at full resolution and zoom into the neck/eye region before
+calling a geometry fix done.
