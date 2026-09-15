@@ -50,13 +50,16 @@ VISEME_DESC = {
     "a_e": ("mouth open very wide in a large vocal opening, both upper and lower rows of teeth "
             "clearly visible, mouth held open wide as if singing a loud vowel sound"),
     "d_j_ch": "upper and lower teeth held together and touching, lips parted just enough to show the teeth line, relaxed jaw",
-    "f": ("EXTREME CLOSE-UP of a lip-biting shape, like saying the letter F: ONLY the upper "
-          "front teeth are visible, resting down and pressing firmly onto the lower lip. "
-          "The LOWER TEETH MUST NOT BE VISIBLE AT ALL -- the lower lip covers them completely. "
-          "This is NOT a smile and NOT a grin -- do not draw two rows of teeth. Draw exactly "
-          "ONE row of upper teeth touching the pink lower lip, mouth corners neutral (not "
-          "upturned), a distinctly asymmetric bite silhouette, unmistakably different from a "
-          "symmetric open smile"),
+    "f": ("the mouth is ALMOST ENTIRELY CLOSED, like gently biting your own lower lip -- picture "
+          "a person saying the letter F or V. The mouth silhouette is a NEARLY SHUT, THIN "
+          "horizontal shape, similar in overall closed-ness to a closed mouth, EXCEPT a single "
+          "thin strip of upper front teeth peeks out and rests directly on top of the lower lip. "
+          "There is NO dark open cavity, NO visible tongue, NO lower teeth, and NO wide opening "
+          "of any kind -- the mouth must NOT look open like a smile or grin. It is a subtle, "
+          "closed-ish bite shape: lower lip tucked slightly in and up under the sliver of upper "
+          "teeth, mouth corners flat/neutral (not curled up, not a smile). If you are drawing "
+          "any visible dark interior/cavity, that is WRONG -- redraw it closed with just the "
+          "teeth sliver over the lip."),
     "l": ("mouth open, and INSIDE the dark mouth cavity there is a separate raised pink tongue "
           "shape shaped like an upside-down V or a small pink triangle/hump, curling UP AND "
           "BACK to touch the ridge behind the upper front teeth. The tongue must be drawn as "
