@@ -74,7 +74,15 @@ def main():
     response_json = get_alignment(script_text, args.audio, out_dir)
     transcript = response_json["transcript"]
 
-    head_movement = analyzer.get_head_movement_instructions(transcript)
+    # ponytail: head_direction has NO visual effect (head/{L,M,R} are identical
+    # sprites for every character -- confirmed on character_1 and character_4;
+    # eyes_direction is the only real gaze signal). A separate head_movement LLM
+    # call used to pick head_direction independently of eyes_direction, so the
+    # two disagreed on ~30% of frames in testing -- the head "turn" implied one
+    # direction while the eyes looked another, reading as the character glancing
+    # around at random. Dropped that call; eyes_direction is now the single
+    # source of truth for both. Upgrade path: if head art ever gets real L/R
+    # turned sprites, re-add an independent (but eyes-aware) head_direction pass.
     eyes_movement = analyzer.get_eyes_movement_instructions(transcript)
     character = analyzer.get_character(transcript, characters)
     emotions_result = analyzer.get_emotion(transcript, emotions)
@@ -83,8 +91,9 @@ def main():
     zoom = analyzer.get_zoom(transcript)
     screen_mode_result = analyzer.get_screen_mode(transcript, screen_mode)
 
-    update_values(response_json, head_movement, "head_direction", "M")
     update_values(response_json, eyes_movement, "eyes_direction", "M")
+    for word in response_json["words"]:
+        word["head_direction"] = word["eyes_direction"].split("_")[-1]
     update_values(response_json, character, "character", 1)
     update_values(response_json, emotions_result, "emotion", 1)
     update_values(response_json, body_action, "body_action", 3)
