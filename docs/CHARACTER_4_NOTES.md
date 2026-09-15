@@ -254,3 +254,112 @@ pass). `tools/char4_rebuild_bodies_only.py` (new) rebuilds ONLY `body/*` files a
 background-box false-positive class, same as character_1). Contact sheets:
 `build/qa/character_4/pose_sheet_round{1,2,3,4}.png`, `build/qa/character_1/
 pose_bar_reference.png`.
+
+## Viseme distinctness pass (2026-09-15, blind-critic gauntlet)
+
+Axis: are the 10 happy + 10 sad mouth visemes shaped distinctly enough that a viewer blind to
+the labels can match each to its intended sound, per `docs/CHARACTER_1_ANATOMY.md` sec 2's
+shape table? Method: render all 20 mouths per mood, shuffle character_4's set with random
+letters, hand a fresh Sonnet agent the character_1 reference (labelled) + character_4
+candidates (unlabelled) and ask it to match blind. Repeated until confident or stuck 3+ real
+attempts on a given viseme (this went to 4 for `f` — see below).
+
+**Round 1 (original build_character_4.py art, before this pass) — confidence 35/happy,
+28/sad.** Flagged: `f` showed no lip-bite at all (read as generic soft smile); `l`/`th` showed
+no tongue at all (neither raised-inside nor poking-out); `o_big` didn't read as round;
+`a_e_s` (sad) read as an outright HAPPY smiling mouth — a real mood bug traced to the shape
+description itself hard-coding "smile"/"corners pulled up" for `a_e`, which fought the sad
+mood modifier appended after it.
+
+**Fix 1** (`tools/char4_generate.py` `VISEME_DESC`): rewrote descriptions to be mood-neutral
+(shape only, mood applied separately via `mood_word`), added explicit "the tongue must be
+plainly visible" language for `l`/`th`. Regenerated `f_h/s`, `l_h/s`, `th_h/s`, `a_e_s`,
+`o_big_h/s` via Gemini, re-keyed with the existing `tools/build_character_4.py` helpers
+(`load_keyed`/`tight_crop` — NOT a full pipeline rebuild, see gotcha below).
+
+**Round 2 — confidence 25/happy, 42/sad.** `a_e_s` mood bug fixed (confirmed reads sad now).
+Still flagged: `f` still generic/no bite; `l`/`th` still no clearly-separated tongue; `o_big`
+still not reading as a clean round pucker.
+
+**Fix 2:** far more explicit, physically-descriptive prompts — `f` as "an unmistakable overbite
+of teeth-on-lip, NOT a generic open mouth"; `l` as "a separate raised pink tongue shape...
+floating in the upper-middle of the cavity, think of the tongue-tip emoji"; `th` as "the tongue
+tip STICKS OUT PAST THE LIPS... like the classic blep emoji". Regenerated the same 6 files.
+
+**Round 3 — confidence 35/happy, 38/sad, direct inspection confirms `l` and `th` now genuinely
+distinct** (raised tongue INSIDE for `l` vs. tongue poking OUTSIDE the lip line for `th` — both
+read correctly in every subsequent round). `f` still flagged as a generic open-teeth grin
+indistinguishable from `d_j_ch`/`trans`/`a_e`.
+
+**Fix 3 (attempt 3 on `f` specifically):** rewrote `f`'s prompt to force a MOSTLY CLOSED
+mouth silhouette (no dark cavity, no two rows of teeth) with only a sliver of upper teeth
+resting on the lower lip — closer to `m_b_close`'s closed-ness than to the open-mouth family.
+Direct inspection: correct shape, but round-6's critic still couldn't confidently separate it
+from `trans`/`m_b_close` at thumbnail scale, and a mild upturn read as borderline "smiling" on
+the sad variant.
+
+**Fix 4 (attempt 4, final):** made the closed-ness and flat corners explicit and forbade any
+visible cavity outright ("if you are drawing any dark interior, that is WRONG"). Direct
+inspection of the result: clean, correctly flat/closed-ish bite shape with a visible single
+tooth-sliver, no smile curl, for both moods.
+
+**Round 4-6 environment problem (important — read before re-running this pass):** a SEPARATE,
+concurrent session was simultaneously rebuilding character_4's body poses (this file's own
+"Body-pose distinctness pass" section above, landed as commit `b57f6b8`) and repeatedly
+overwrote `head/`, `eyes/`, `body/` and `images/metadata/metadata.json` out from under this
+pass's full-face composite renders mid-flight — confirmed by diffing against git, not assumed
+(their own notes above independently confirm "hit a real file-corruption race against a
+concurrent viseme-fix session during this pass" — that concurrent session was this one). This
+produced at least one badly broken evidence render (head detached, single eye, mouth on the
+collar) that was NOT a real defect in this pass's work, just a torn read of files mid-write by
+the other session. **Fix:** switched verification to `tools/char4_standalone_critic.py`, which
+reads mouth PNGs directly from `images/characters/<char>/mouth/` and their box sizes from
+`images/metadata/metadata.json`, laid out on a plain grey tile per viseme (no head/eyes/body/
+background compositing at all) — the SKILL's own documented fallback ("or standalone with
+their own boxes for a fair size comparison"). This is immune to the other session's churn and
+is what rounds 5-6's verdicts above are based on. `tools/char4_shuffle_critic_isolated.py`
+(rsync snapshot to `/tmp/c4_snapshot`) was an earlier, abandoned attempt at the same isolation
+problem — it still composited through `CharacterManager`, and the snapshot itself caught the
+other session's assets in a self-inconsistent mid-write state (a "surfing" background pose
+appeared from nowhere). Not part of the final method; kept only as a documented dead end.
+
+**Final round (6) confidence: 28/happy, 35/sad — genuinely close, and NOT a rubber-stamp
+pass.** Real remaining gaps, all investigated against character_1's own reference art (not
+assumed):
+- **`f` vs `trans`/`m_b_close`:** still occasionally read as ambiguous at thumbnail scale. Checked
+  character_1's own `f_h.png` directly (pixel dims 412x129, same "wide" family box as `a_e`/
+  `d_j_ch`/`l`/`th` per `CHARACTER_1_ANATOMY.md`, NOT `m_b_close`'s thin-line family) — but the
+  actual drawn content is itself a thin, mostly-closed black line, visually subtle by nature.
+  This is 4 real regeneration attempts on `f` (the SKILL's own "stuck after 3, report why"
+  threshold) — verdict: **stuck at a shape ceiling inherent to the viseme**, not an unexplored
+  fix. `f` (a bilabial/labiodental near-closure) is subtle in character_1's own source art too;
+  making character_4's version more dramatic would stop being an accurate "teeth on lower lip"
+  shape and become a different, incorrect shape. Recommend accepting current `f` art as final
+  unless a future pass wants to try enlarging `f`'s metadata box specifically (untouched by this
+  pass — see below) to buy more separation from `trans`/`m_b_close` at render scale.
+- **`o_big` vs `oh`:** flagged as a near-duplicate pair in 2 of 3 late rounds. Character_1's own
+  `o_big_h.png`/`oh_h.png` share an IDENTICAL metadata box (50x50) and differentiate PURELY by
+  drawn shape (a plain solid black circle for `o_big` vs. a pointed/angular abstract mark for
+  `oh`) — character_4's versions both draw a "dark oval + white cap + teeth top" family that is
+  shape-similar by construction. Not attempted this pass (would need a 5th art regeneration
+  round outside this pass's remaining budget); flagged for a follow-up pass specifically on
+  `oh` to make it visibly narrower/more angular than `o_big`'s round pucker.
+- **`l` vs `a_e`:** one round-3 critic read `l`'s raised tongue as just "tongue at the base of a
+  generic open mouth" rather than confidently "raised, touching the upper teeth" — a boundary
+  call, not a repeat failure (round 5 and round 6 critics both gave `l` a clean, confident match).
+  Left as-is.
+
+**Not touched, not in scope:** a REAL, unrelated structural regression was found while
+re-running `character_qa.py`'s geometry check after the concurrent session's `b57f6b8` landed —
+every eye box and every mouth box (not just the 9 files this pass touched) now reports
+"outside head canvas" (e.g. `mouth[a_e_h]` box bottom at y=254 vs. a 220px-tall head). Confirmed
+via `git show` that this did NOT exist in the prior commit (`8af430e`, this pass's actual
+starting point) and was introduced by whatever geometry step `b57f6b8`'s own rebuild ran. This
+is a head/eye/mouth-box POSITIONING bug, unrelated to viseme shape/art (this pass's axis) and
+outside `body/`, so it was left for whoever owns that commit rather than fixed here — flagging
+it explicitly per the "never claim done without verifying" rule rather than silently ignoring a
+real `character_qa.py` regression.
+
+Evidence (this pass): `build/qa/character_4/mouth_grid_character_{1,4}_{happy,sad}.png` (full
+20-mouth contact sheets), `build/qa/character_4/critic_round{1..6}_{happy,sad}[_standalone]/`
+(reference + shuffled-candidate sheets + hidden answer keys per round).
