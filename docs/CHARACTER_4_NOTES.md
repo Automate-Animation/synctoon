@@ -363,3 +363,107 @@ real `character_qa.py` regression.
 Evidence (this pass): `build/qa/character_4/mouth_grid_character_{1,4}_{happy,sad}.png` (full
 20-mouth contact sheets), `build/qa/character_4/critic_round{1..6}_{happy,sad}[_standalone]/`
 (reference + shuffled-candidate sheets + hidden answer keys per round).
+
+## Emotion-differentiation pass (2026-09-15, project board #39)
+
+Starting point: `content` read too close to `happy`, `glare` too close to `sarcasm` (the two
+pairs a prior pass had already flagged as near-duplicate). Method: rendered all 14 base emotions
+for character_1 and character_4 as labelled grids, ran a FRESH blind agent each round on a
+randomly-relettered, unlabelled crop of the character_4 grid (no character_1 reference, no
+emotion names given first) to (a) freely cluster tiles it thought were duplicates and (b) guess
+the word→tile mapping from the 14-word list — a genuinely distinct set should let a blind viewer
+mostly succeed at (b); a collapsed set won't. New tool: `tools/emotion_diff_grid.py`.
+
+**Round 1** confirmed the problem was bigger than the two named pairs: `happy`/`content`/`lust`/
+`silly` were a 4-way near-duplicate cluster (all plain round eyes), plus `angry`/`glare` and
+`sad`/`shock`. Fixed: `content` → half-closed peaceful droop: `lust` → heart-shaped pupils +
+hooded lid; `silly` → wall-eyed/wonky mismatched pupils (needed 2 regenerations — first attempt
+didn't actually go cross-eyed); `glare` → narrowed sideways side-eye, flat brow; `shock` → huge
+round eyes + tiny pupils + brows shot up.
+
+**Rounds 2–4** each surfaced a NEW pair the fix for the previous round exposed (an inherent
+side-effect of always re-testing all 14 against each other): `sad`/`worried` (fixed: sweat drop +
+wide alert eyes on `worried`, vs. `sad`'s downcast tented brow + added a literal teardrop),
+`bore`/`glare` (fixed: `bore` → straight-ahead heavy droop, no sideways shift), `angry`/
+`evil_laugh` (fixed: `evil_laugh` → eyes squeezed into a gleeful closed crescent, vs. `angry`'s
+open direct stare), `happy`/`sad`/`sarcasm` (fixed: `sarcasm` → strongly asymmetric one-eyebrow-
+cocked smirk), `content`/`bore` (fixed: `content` redesigned again as fully CLOSED soft crescent
+smile — categorically different from `bore`'s half-open droop, not just "less droopy"), `crazy`
+not reading as manic at all (fixed: mismatched eye sizes — one bulging, one small/dilated).
+
+**Real bugs found and fixed along the way (not art, but would have shipped broken art):**
+- Two separate keying failures produced salt-noise/speckle in `silly` and `content`: Gemini's
+  green background for these specific generations keyed with ~15% of pixels landing in an
+  ambiguous partial-alpha zone. Fix: binarize alpha at a threshold then run two passes of
+  `ImageFilter.MedianFilter` before saving — the existing `key_green_adaptive` alone wasn't
+  enough for every generation, only most.
+- `crazy`'s mismatched-eye art had almost no transparent margin above the art in its own tight
+  crop (bbox touched row 0 of the 65px box), so it consistently sat with the smaller eye's pupil
+  hidden under the hairline regardless of body pose. Fix: re-letterbox with a fixed top margin
+  matching the other emotions' average headroom, applied to all 6 file copies (L/M/R + their
+  `_blink` copies) since the earlier per-file loop only caught 3 of them the first time.
+- `angry`'s first "fixed" regeneration (open, V-browed) came back with Gemini's usual white
+  sticker-card halo, and this particular halo's outer contour survived as a thin BLACK ring
+  (not caught by `key_green_adaptive`'s white-halo strip, which only targets near-white/
+  low-saturation pixels) — read by a blind critic as a "spiral", confusing it with `crazy`/
+  `spoked`. Fixed by re-prompting with an explicit "no sticker border/halo/vignette" instruction
+  rather than trying to strip it in post — the regenerated art came back clean.
+
+**Round 6+**: `angry`/`glare` kept recurring as a soft pair across independent rounds even after
+round 1's fix (both read as "furrowed, narrowed" family). Pushed further apart: `angry` → wide
+OPEN bulging eyes with a tight V meeting near the nose bridge (rage, not suspicion); `glare` kept
+narrowed but pushed the sideways pupil shift harder. `bore`/`glare` recurred too, well after
+round 2's fix — diagnosed as both sharing the same "half-lidded brown-tinted eye" family;
+final fix made them different in KIND rather than degree: `bore` stayed a warm-toned drooping
+half-shut eye looking straight down, `glare` was rebuilt as fully OPEN round eyes (no colour
+tint on the lid) with both pupils pushed hard into the outer corner — genuinely different eye
+shape, brow shape, and colour treatment, confirmed side by side (`/tmp/bore_vs_glare_final.png`
+equivalent evidence, see below).
+
+**A pipeline hazard, not an art problem, that cost most of this pass's remaining time:** two
+other concurrent sessions were live-editing character_4 during this pass (project board #41
+body-pose task, landed as `b57f6b8`; a mouth-viseme task, landed as `b86f81e`) — both touch
+shared `images/metadata/metadata.json` and `images/characters/character_4/{head,body,mouth,
+background}/`. Running this pass's own `build_character_4.py` + `fix_character_4_eye_aspect.py`
+(the tools this pass started with) silently REVERTED their already-committed head-crop and
+per-emotion eye-box geometry back to an older convention each time, which is what produced a
+string of confusing, seemingly-regressing renders (a "ring" artifact, one eye hidden off-frame,
+a whole-grid pose shift) that had nothing to do with this pass's actual eye ART. Root-caused via
+`git status`/`git log` (a second script, `fix_character_4_geometry.py`, existed uncommitted-by-
+this-pass and was the actual current convention) and a running `character_qa.py character_1`
+process from another session. Fixed the process, not just the symptom: `git checkout --` every
+file outside `eyes/` back to HEAD before finishing, then wrote `tools/char4_finalize_eyes.py`,
+which reads the CURRENT committed per-emotion box from `metadata.json` live (never hardcodes a
+box) and only re-letterboxes this pass's regenerated sprites into it — respects "don't touch
+box/positioning mechanics" for real, rather than by accident. Baseline `character_qa.py
+character_4` problem count is 80 (all `background[*] body box outside canvas`, confirmed via
+`git stash` to be identical on a pristine HEAD checkout, i.e. pre-existing and not from this
+pass) — same false-positive pattern as the 32-problem baseline documented earlier in this file,
+just a higher count under the current (different) background/body geometry.
+
+**Final verdict:** because of the pipeline hazard above, the last 2–3 rounds of whole-face
+blind-critic grids were unreliable evidence (they were rendering through a moving/broken
+head-eye-box positioning target, not this pass's art). The decisive, trustworthy evidence is the
+isolated per-emotion eye+eyebrow SPRITE files rendered directly on a plain background with no
+head/body compositing at all (bypasses the shared positioning code entirely) — a fresh blind
+critic on that isolated-sprite grid found only cosmetic base-rig reuse (e.g. `happy`/`sad` share
+an eye shape, differentiated only by `sad`'s teardrop — an intentional, working design, the same
+pattern character_1 itself uses), successfully read `sad`, `angry`, `sarcasm`, `worried`,
+`crazy`, `evil_laugh`, `lust` confidently from the word list with no prompting, and flagged only
+`bore`/`glare` as a genuine remaining near-duplicate (both a "droopy/half-lidded" family) — which
+was then given its final, decisive fix in this same pass (see above): `bore` and `glare` are now
+different in KIND (colour-tinted drooping stare vs. open round side-shifted eyes), not just
+degree.
+
+**Known remaining soft calls (real, but not actionable without more budget):** `shock`/`spoked`
+share the general "startled" register (tiny-pupil-in-wide-eye vs. burst/motion-line accents) —
+both individually legible as "something startled the character", genuinely hard to split further
+into "shock" vs. "spooked" specifically from eyes alone even on character_1's own asset set,
+per this file's earlier honest note that some family resemblance across character_4's 14
+emotions is expected and acceptable, matching character_1's own precedent.
+
+Evidence (this pass): `build/qa/character_4/sprite_shuffled_final{,2,3}.png` +
+`sprite_shuffle_map_final{,2,3}.json` (the trustworthy isolated-sprite evidence and hidden
+answer keys), `build/qa/character_4/emotion_grid_character_{1,4}_labelled.png` (full labelled
+14-emotion reference grids), `tools/emotion_diff_grid.py`, `tools/char4_finalize_eyes.py`,
+`tools/char4_fix_eyes_round{1,2,3,4}.py` (per-round regeneration prompts).
