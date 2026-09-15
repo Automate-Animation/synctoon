@@ -467,3 +467,94 @@ Evidence (this pass): `build/qa/character_4/sprite_shuffled_final{,2,3}.png` +
 answer keys), `build/qa/character_4/emotion_grid_character_{1,4}_labelled.png` (full labelled
 14-emotion reference grids), `tools/emotion_diff_grid.py`, `tools/char4_finalize_eyes.py`,
 `tools/char4_fix_eyes_round{1,2,3,4}.py` (per-round regeneration prompts).
+
+## Head-to-body attachment re-verification pass (2026-09-15, after the body-pose/viseme/emotion
+axes landed concurrently)
+
+Axis: re-verify head-to-body attachment (the gap/anchor bug fixed twice earlier this file,
+rounds "Second round of real bugs" and the original build) still holds across ALL 39
+`body_actions`, specifically because three OTHER concurrent sessions rewrote
+`images/characters/character_4/body/*` and `images/metadata/metadata.json["character_4"]["body"]`
+from scratch mid-pass (`b57f6b8` 19 new distinct poses, `b86f81e` visemes, `1d89a6f` emotions,
+`1d601a0` a reconciliation commit) — a real risk that a fix already landed for this axis got
+silently reverted or invalidated by a differently-shaped rebuild, exactly as this file's own
+"Gotcha" section under the body-pose pass warned.
+
+**Method:** `tools/char4_neck_seam_qa.py` (new) composes every character_4 `body_action` at full
+1920x1080 resolution via `CharacterManager` (not a shortcut re-implementation) and crops a
+generous neck/collar/upper-torso region (wide margin so a held prop stays legible in context,
+not an ambiguous floating blob) for all 39 actions, plus 6 character_1 reference actions as the
+"clean attachment" calibration bar. A fresh, context-free `general-purpose` critic reviewed the
+unlabelled crops each round; findings were independently confirmed or refuted against the actual
+full-resolution `CharacterManager` render (not the crop, and not the critic's prose alone) before
+any fix — the same "verify against the real pixels" discipline this file's earlier passes used.
+
+**Timing hazard hit directly:** the first render pass and first critic round happened to land
+*during* another session's `build_character_4.py` + `fix_character_4_body_anchors.py` +
+`fix_character_4_eye_aspect.py` run (visible mid-flight via `ps aux` and metadata.json mtimes
+churning every few seconds) — every crop from that window was stale/self-inconsistent (e.g. one
+render showed `achieve`/`winner` floating badly, a re-render 90s later after the other session's
+own commit showed them fine, before this pass's own fixes were even applied). Fix for the
+process, not just the symptom: watched `pgrep -f build_character_4` / `metadata.json` mtime until
+quiet for several minutes before trusting ANY render as ground truth, then rebuilt every
+comparison image from scratch. Cost about a third of this pass's time; recorded here so a future
+pass budgets for it rather than being surprised again.
+
+**6 real, confirmed floating-head defects found and fixed** (all introduced by the concurrent
+`b57f6b8` body-pose rebuild's own `find_neck()` heuristic in `tools/build_character_4.py`
+misfiring on specific poses — not a regression of this file's earlier two fix rounds, and not
+touched via the now-deprecated `fix_character_4_body_anchors.py`/`fix_character_4_geometry.py`
+chain per the body-pose pass's own "Gotcha" note):
+
+- **achieve / winner** (share one body art file, the two-arms-raised "victory" pose):
+  `find_neck()` scans top-down for the first row with a wide, centred opaque run and returns as
+  soon as it finds one — with BOTH arms raised near head height, the two separate hands in the
+  same row span nearly the full image width when measured end-to-end (`xs.max()-xs.min()`,
+  which does not check for a CONTIGUOUS run), satisfying the "wide + centred" test by pure
+  coincidence at the very top of the image. Result: head anchored at row 14 (into the raised
+  hands) instead of row ~233 (the actual collar), a large, obvious gap once rendered at full res
+  (the "hi"/"thinking" raised-single-hand bug this file already fixed once -- this is the same
+  root cause, but two raised hands make the false-positive row occur much earlier/worse than one).
+- **idea, idk, paper, yeah**: same class of bug -- a single raised hand/fist near head height
+  (holding a lightbulb prop, a shrug, a raised fist, or a clipboard) produced a skin-or-prop-toned
+  blob wide/centred enough to satisfy `find_neck()`'s row-scan before the scan ever reached the
+  real neck row further down, again anchoring the head 100-300px too high with an empty exposed
+  neck-stump left visible on the collar below it.
+
+**Fix:** rather than generalize `find_neck()` further (5 different failure shapes across 6
+actions -- two-hand span, raised fist, raised lightbulb-holding hand, a shrug, a clipboard-holding
+raise -- suggests the general heuristic is structurally unreliable for any "something raised near
+head height" pose, matching this file's own precedent of hardcoding stubborn cases rather than
+chasing a fully general detector), each action's true neck stump was located directly by
+HSV skin-mask inspection restricted to the collar-height region of that specific body PNG
+(`cv2.inRange` skin range `[3,25,60]`-`[28,200,255]`, same range `find_neck_candidates` already
+used elsewhere in this codebase), confirmed by cropping and eyeballing the actual pixels, then
+written as an exact manually-measured `(position, size, neck)` triple straight into
+`images/metadata/metadata.json["character_4"]["body"][action]` -- `size` was left untouched
+(already correct, since `build_bodies()`'s `hw=int(bw*0.30)`/`hh=int(hw/1.2)` sizing math was
+never the bug, only the `(hx,hy)` placement derived from the wrong `ncx,ncy`). No sprite files
+were regenerated or touched -- this was purely a metadata/anchor fix, matching the file-scope
+this pass was scoped to (`images/characters/character_4/body/`, `images/metadata/metadata.json`,
+`tools/*.py`, this doc -- never eyes/mouths/backgrounds, those are other axes).
+
+**Verification:** `character_qa.py character_4` -> 0 real problems (32 pre-existing
+`background[*] body box outside canvas` false positives, identical class documented earlier in
+this file and shared with character_1). Three further blind-critic rounds after the fix (one
+generic, one explicitly mug-prop-aware after a false-positive round flagged `confuse`/`crazy`/
+`running`/`sneaky`/`model`/`standing`/`technical` for a HELD MUG PROP near the chin being
+mistaken for an exposed neck stub -- verified against the actual full-res renders and confirmed
+those 7 are clean, no fix needed) all came back 39/39 PASS on the full action set, with the 6
+fixed actions specifically re-checked each round as a sanity control alongside a previously-clean
+sample.
+
+**Lesson reinforced (this file's third time recording it):** the fast, high-confidence path is
+always full-resolution `CharacterManager.get_character()` renders eyeballed directly -- a crop
+tool's own re-implementation of the composition math is a second thing that can be wrong (this
+pass's own `char4_neck_seam_qa.py` crop margins had to be widened once after being too tight to
+give a mug prop legible context), and ANY render taken while another session's build script might
+be running must be treated as untrustworthy until the process/mtime is confirmed quiet.
+
+Evidence: `build/qa/character_4/neck_seam/{character_1,character_4}/*.png` (45 full-res crops,
+6 reference + 39 candidate, the actual images every critic round and this summary are based on),
+`build/qa/character_4/neck_seam_contact_sheet.png` (labelled human-review sheet). New tool:
+`tools/char4_neck_seam_qa.py`.

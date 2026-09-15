@@ -29,9 +29,32 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 CH = "images/characters/character_4"
 META = "images/metadata/metadata.json"
-HEAD_W, HEAD_H = 196, 220  # cropped-to-content head canvas (see fix_character_4_head_crop.py)
+HEAD_W, HEAD_H = 210, 281  # cropped-to-content head canvas (see fix_character_4_head_crop.py) --
+# re-measured 2026-09-15 after a full build_character_4.py rebuild; the exact bbox can shift
+# slightly run-to-run of build_head()'s tight_crop+resize math, so this must match whatever
+# fix_character_4_head_crop.py just printed, not a stale prior-session number.
 NECK_BAND = (270, 400)   # absolute canvas rows to search
 OVERLAP = 25             # the head's drawn bottom edge sits this far below the neck-blob top
+
+# BUG 3 (found 2026-09-15 by a blind-critic pass on full-res neck-seam crops) -- 4 actions
+# where the general "closest to median neck row" heuristic still picks the WRONG skin-blob:
+# confuse/sneaky (hand raised to chin/ear, holding a mug) and paper/technical (raised fist
+# off to the side) each have exactly 2 skin-blob candidates -- the real neck stump, and the
+# raised hand/fist, which happens to sit CLOSER to the global median_y than the real neck
+# does for these two specific poses (median_y=322; hand rows 314/313 beat neck rows 334/337).
+# The x-centering (cx) is actually the more reliable signal here -- the real neck consistently
+# lands at cx~502-505 across every other pose in this pose family, while the wrong hand/fist
+# blob sits well off that (cx~439/394). Rather than generalize the heuristic further (risks
+# regressing the 33 actions that already pick correctly via median-y), these 4 stubborn poses
+# get a manually-measured override: (cx, y) of the correct neck-stump blob, read directly off
+# `find_neck_candidates()`'s own output for each pose. confuse/sneaky share one body art file
+# (POSE_MAP reuse) and so does paper/technical -- one override per underlying pose.
+MANUAL_NECK_OVERRIDES = {
+    "confuse": (503.5, 334),
+    "sneaky": (503.5, 334),
+    "paper": (505.5, 337),
+    "technical": (505.5, 337),
+}
 
 
 def head_drawn_bottom():
@@ -96,11 +119,15 @@ def main():
         if not cands:
             missing.append(action)
             continue
-        # prefer the candidate closest to the reference neck row, not simply the topmost --
-        # a raised hand near the head is usually further from the typical neck row
-        x, y, bw, bh, area, cx = min(cands, key=lambda c: abs(c[1] - median_y))
-        if len(cands) > 1 and y != min(c[1] for c in cands):
-            corrected.append(action)
+        if action in MANUAL_NECK_OVERRIDES:
+            cx, y = MANUAL_NECK_OVERRIDES[action]
+            corrected.append(action + " (manual override)")
+        else:
+            # prefer the candidate closest to the reference neck row, not simply the topmost --
+            # a raised hand near the head is usually further from the typical neck row
+            x, y, bw, bh, area, cx = min(cands, key=lambda c: abs(c[1] - median_y))
+            if len(cands) > 1 and y != min(c[1] for c in cands):
+                corrected.append(action)
         by = y + OVERLAP - drawn_bottom
         bx = int(cx - HEAD_W / 2)
         meta["body"][action] = {
