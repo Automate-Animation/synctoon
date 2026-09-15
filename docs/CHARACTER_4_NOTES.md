@@ -177,3 +177,80 @@ collar with no gap. `character_qa.py character_4` -> 0 problems. Re-rendered
 hide a real gap or a mild squash that is obvious at 1920x1080. Always pull actual frames
 from a rendered video at full resolution and zoom into the neck/eye region before
 calling a geometry fix done.
+
+## Body-pose distinctness pass (2026-09-15, project board #41)
+
+Starting point: 39 `body_actions` names mapped onto only 12 actually-generated poses via
+`POSE_MAP` in `build_character_4.py` (winner/you_pose(pointing)/explain/question/technical/
+standing/hi/confuse/joy/feeling_down/idea/thinking) -- several collisions folded semantically
+unrelated actions onto the same pose (e.g. crazy+yeah+jumping+achieve all on "winner").
+
+**Method:** `tools/char4_pose_sheet.py` renders every character_4 body_action composed on the
+classroom background into one labelled 39-tile contact sheet (`build/qa/character_4/
+pose_sheet_roundN.png`), plus a 15-action character_1 hand-drawn bar (`build/qa/character_1/
+pose_bar_reference.png`) as a "what good distinctness looks like" calibration reference. Each
+round: a FRESH blind `general-purpose` critic agent (no memory of prior rounds) reviews the
+labelled sheet against the reference bar and flags tiles whose pose doesn't plausibly match its
+action word, or that collide with an unrelated action's pose. Flagged actions get a brand-new
+Gemini-generated pose (`tools/char4_generate.py`'s `POSES_ROUND2/3/4` dicts + `build_bodiesN()`),
+keyed/cropped/anchored the same way as the original 12 (`char4_key.key_green_adaptive` +
+`build_character_4.py`'s own `tight_crop`/`find_neck`/pad-top anchor math -- NOT
+`fix_character_4_body_anchors.py` or `fix_character_4_geometry.py`, see gotcha below), then
+`POSE_MAP` is repointed and the sheet is re-rendered for the next round.
+
+**4 rounds run, 19 new distinct poses generated (21 Gemini calls, 2 redos):**
+- Round 2: crazy, yeah, meditation (later superseded), come, chilling, not_me, technical2 --
+  fixed crazy/yeah colliding with winner's victory pose, meditation with praying's clasped hands,
+  come with hi's wave, chilling with standing's neutral pose, not_me with the generic pointing
+  pose, technical with thinking's chin-touch.
+- Round 3: dancing, running, singing, kung_fu, jumping (v1, later redone), meditation2 (v1, later
+  redone) -- fixed the 4-way dancing/joy/running/singing collision and jumping/kung_fu/achieve/
+  winner all sharing one "arms up" pose.
+- Round 4: jumping (v2 -- v1's "mid-air" prompt drifted back into a static arms-up standing pose
+  despite the wording; v2 added explicit "BOTH FEET CLEARLY LIFTED OFF THE GROUND, no shadow
+  under the feet" and got a real leap silhouette), sneaky, idk, praying, love, model, shy,
+  meditation2 (v2 -- switched to an actual seated cross-legged pose since v1's "arms at sides"
+  read as indistinguishable from plain standing) -- fixed idk/praying sharing thinking's pose,
+  sneaky sharing confuse's pose, love sharing hi's wave, model sharing idea's lightbulb prop, shy
+  reading identical to standing.
+
+**Round 4 critic flagged 4 more tiles (come, crazy, question, technical)** but direct pixel
+inspection of the actual composited body PNGs (not the small sheet thumbnails) showed all four
+are genuinely distinct and semantically appropriate: come is a clear beckoning curl-fingers
+gesture (not touching the face), crazy is a wild asymmetric one-arm-flung pose visibly unlike
+chilling's one-leg-crossed lean, question is a two-hands-out questioning shrug distinct from a
+flat point, technical is holding a tablet and pointing at it. This matches a pattern seen in
+every round: the blind critic's per-tile prose description sometimes doesn't match what's
+actually on the tile (e.g. round 2 described "kung_fu" as a "bent-arm guard stance" when it was
+at the time literally the same both-arms-up file as winner; round 3/4 called several correct
+poses "generic" or misattributed one tile's description to another). Verdicts were only acted on
+after confirming the described defect against the actual rendered PNG, not the critic's prose
+alone -- this is why round 4's 4 flags did not trigger a 5th generation round.
+
+**Left deliberately as pose reuse (defensible, not defects, per multiple critic rounds +
+direct inspection):** i/me/that/this/you/answer share one generic forward-point ("you_pose" /
+`body_pointing.png`) -- classic hard-to-differentiate deictic/pronoun cluster, same call the
+brief itself pre-approved. achieve/winner share the victory-V pose (near-synonyms). idk/what
+share a shrug (near-synonyms). paper still shares the original "technical" pose (paper's own
+tile reads fine holding a clipboard). confuse keeps its original round-1 pose (a neck-scratch,
+visually close to but distinct from thinking's chin-touch) rather than getting a 4th-round
+regeneration for what direct inspection suggested was a marginal, not jarring, overlap.
+
+**Gotcha (build-order, cost a round of wasted work):** `fix_character_4_geometry.py` and
+`fix_character_4_body_anchors.py` are NOT part of this pipeline's current working chain --
+running either after `build_character_4.py` corrupts almost every body anchor (`fix_character_4_
+body_anchors.py`'s fixed `NECK_BAND=(270,400)` assumes a different, no-longer-current body-art
+canvas convention and returned "no neck candidate" fallback-reuse for 31/39 actions when tried
+during this pass). The correct, current chain is: `build_character_4.py` -> `fix_character_4_
+head_crop.py` -> `fix_character_4_eye_aspect.py` (body anchors are already correct straight out
+of `build_character_4.py`'s own `tight_crop`/`find_neck`/pad-top math). Also: `build_character_4.
+py`'s `main()` rewrites the ENTIRE `metadata.json["character_4"]` key in one shot (head+mouth+
+eyes+body+background) -- unsafe to run when a concurrent session may be regenerating mouth/eye
+source art (hit a real file-corruption race against a concurrent viseme-fix session during this
+pass). `tools/char4_rebuild_bodies_only.py` (new) rebuilds ONLY `body/*` files and the
+`metadata["character_4"]["body"]` sub-key, safe to run alongside unrelated head/mouth/eye work.
+
+**Final state:** `character_qa.py character_4` -> 0 real problems (only the pre-existing
+background-box false-positive class, same as character_1). Contact sheets:
+`build/qa/character_4/pose_sheet_round{1,2,3,4}.png`, `build/qa/character_1/
+pose_bar_reference.png`.

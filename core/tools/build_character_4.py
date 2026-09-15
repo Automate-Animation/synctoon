@@ -76,16 +76,31 @@ VISEMES = ["a_e", "d_j_ch", "f", "l", "m_b_close", "o_big", "o_small", "oh", "th
 HAPPY_MOODS = {"happy", "content", "sarcasm", "crazy", "evil_laugh", "lust", "silly"}
 
 POSE_MAP = {
-    "achieve": "winner", "answer": "you_pose", "explain": "explain", "me": "you_pose", "not_me": "you_pose",
-    "question": "question", "technical": "technical", "why": "explain", "chilling": "standing",
-    "come": "hi", "confuse": "confuse", "crazy": "winner", "dancing": "joy",
-    "feeling_down": "feeling_down", "hi": "hi", "i": "you_pose", "idea": "idea", "idk": "thinking",
-    "joy": "joy", "jumping": "winner", "kung_fu": "winner", "love": "hi", "meditation": "thinking",
-    "model": "idea", "paper": "technical", "praying": "thinking", "question2": "question",
-    "running": "joy", "search": "explain", "shy": "standing", "singing": "joy", "sneaky": "confuse",
+    "achieve": "winner", "answer": "you_pose", "explain": "explain", "me": "you_pose", "not_me": "not_me",
+    "question": "question", "technical": "technical2", "why": "explain", "chilling": "chilling",
+    "come": "come", "confuse": "confuse", "crazy": "crazy", "dancing": "dancing",
+    "feeling_down": "feeling_down", "hi": "hi", "i": "you_pose", "idea": "idea", "idk": "idk",
+    "joy": "joy", "jumping": "jumping", "kung_fu": "kung_fu", "love": "love", "meditation": "meditation2",
+    "model": "model", "paper": "technical", "praying": "praying", "question2": "question",
+    "running": "running", "search": "explain", "shy": "shy", "singing": "singing", "sneaky": "sneaky",
     "standing": "standing", "that": "you_pose", "thinking": "thinking", "this": "you_pose",
-    "what": "question", "winner": "winner", "yeah": "winner", "you": "you_pose",
+    "what": "question", "winner": "winner", "yeah": "yeah", "you": "you_pose",
 }
+# Round 4 (2026-09-15, project board #41, 3rd critic pass): idk/praying/sneaky/love/model/shy each
+# got their OWN new generated pose after a critic pass found they collapsed onto thinking's
+# chin-touch (idk, praying), confuse's neck-scratch (sneaky), hi's wave (love), idea's lightbulb
+# (model), or a plain neutral standing pose (shy). "jumping" and "meditation" (-> meditation2) were
+# REGENERATED under the same pose name because their round-2/3 art drifted back into a generic
+# static pose that didn't read as jumping/meditating at all (see char4_generate.py POSES_ROUND4).
+# Round 2 (2026-09-15, project board #41): crazy/yeah/meditation/come/chilling/not_me/technical
+# each got their OWN new generated pose (see docs/CHARACTER_4_NOTES.md) after a blind critic pass
+# flagged them as visually colliding with an unrelated action's pose (crazy/yeah were indistinguishable
+# from winner's victory pose; meditation from praying; come from hi; chilling from standing; not_me
+# from the generic pointing pose; technical from thinking's chin-touch). Every other action that
+# still shares a pose (achieve/winner/jumping/kung_fu on "winner"; idk/praying/thinking on "thinking";
+# answer/me/i/that/this/you on "you_pose"; shy/standing on "standing"; love/hi on "hi";
+# confuse/sneaky on "confuse"; paper on "technical"; dancing/joy/running/singing on "joy") was
+# reviewed by the same critic pass and judged plausible/defensible as-is -- left untouched.
 # "you_pose" is the generated "pointing" sticker (file: body_pointing.png) -- reused for
 # answer/me/not_me/i/that/this/you/you (pointing-forward gesture covers all of them, budget-conscious
 # reuse in the spirit of character_3's own POSE_MAP).
